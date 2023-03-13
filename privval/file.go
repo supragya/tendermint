@@ -11,6 +11,7 @@ import (
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/tendermint/tendermint/crypto/eddsabn254"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	tmjson "github.com/tendermint/tendermint/libs/json"
 	tmos "github.com/tendermint/tendermint/libs/os"
@@ -45,9 +46,11 @@ func voteToStep(vote *tmproto.Vote) int8 {
 
 // FilePVKey stores the immutable part of PrivValidator.
 type FilePVKey struct {
-	Address types.Address  `json:"address"`
-	PubKey  crypto.PubKey  `json:"pub_key"`
-	PrivKey crypto.PrivKey `json:"priv_key"`
+	Address    types.Address  `json:"address"`
+	PubKey     crypto.PubKey  `json:"pub_key"`
+	PrivKey    crypto.PrivKey `json:"priv_key"`
+	PubKeyAux  crypto.PubKey  `json:"pub_key_aux"`
+	PrivKeyAux crypto.PrivKey `json:"priv_key_aux"`
 
 	filePath string
 }
@@ -73,11 +76,13 @@ func (pvKey FilePVKey) Save() {
 
 // FilePVLastSignState stores the mutable part of PrivValidator.
 type FilePVLastSignState struct {
-	Height    int64            `json:"height"`
-	Round     int32            `json:"round"`
-	Step      int8             `json:"step"`
-	Signature []byte           `json:"signature,omitempty"`
-	SignBytes tmbytes.HexBytes `json:"signbytes,omitempty"`
+	Height       int64            `json:"height"`
+	Round        int32            `json:"round"`
+	Step         int8             `json:"step"`
+	Signature    []byte           `json:"signature,omitempty"`
+	SignatureAux []byte           `json:"signatureaux,omitempty"`
+	SignBytes    tmbytes.HexBytes `json:"signbytes,omitempty"`
+	SignBytesAux []byte           `json:"signbytesaux,omitempty"`
 
 	filePath string
 }
@@ -152,13 +157,15 @@ type FilePV struct {
 }
 
 // NewFilePV generates a new validator from the given key and paths.
-func NewFilePV(privKey crypto.PrivKey, keyFilePath, stateFilePath string) *FilePV {
+func NewFilePV(privKey crypto.PrivKey, privKeyAux crypto.PrivKey, keyFilePath, stateFilePath string) *FilePV {
 	return &FilePV{
 		Key: FilePVKey{
-			Address:  privKey.PubKey().Address(),
-			PubKey:   privKey.PubKey(),
-			PrivKey:  privKey,
-			filePath: keyFilePath,
+			Address:    privKey.PubKey().Address(),
+			PubKey:     privKey.PubKey(),
+			PrivKey:    privKey,
+			PubKeyAux:  privKeyAux.PubKey(),
+			PrivKeyAux: privKeyAux,
+			filePath:   keyFilePath,
 		},
 		LastSignState: FilePVLastSignState{
 			Step:     stepNone,
@@ -170,7 +177,7 @@ func NewFilePV(privKey crypto.PrivKey, keyFilePath, stateFilePath string) *FileP
 // GenFilePV generates a new validator with randomly generated private key
 // and sets the filePaths, but does not call Save().
 func GenFilePV(keyFilePath, stateFilePath string) *FilePV {
-	return NewFilePV(ed25519.GenPrivKey(), keyFilePath, stateFilePath)
+	return NewFilePV(ed25519.GenPrivKey(), eddsabn254.GenPrivKey(), keyFilePath, stateFilePath)
 }
 
 // LoadFilePV loads a FilePV from the filePaths.  The FilePV handles double
@@ -247,6 +254,12 @@ func (pv *FilePV) GetAddress() types.Address {
 // Implements PrivValidator.
 func (pv *FilePV) GetPubKey() (crypto.PubKey, error) {
 	return pv.Key.PubKey, nil
+}
+
+// GetPubKeyAux returns the public key of the validator's EDDSA key.
+// Implements PrivValidator.
+func (pv *FilePV) GetPubKeyAux() (crypto.PubKey, error) {
+	return pv.Key.PubKeyAux, nil
 }
 
 // SignVote signs a canonical representation of the vote, along with the

@@ -1,4 +1,4 @@
-package eddsa
+package eddsabn254
 
 import (
 	"bytes"
