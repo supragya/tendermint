@@ -207,6 +207,7 @@ func loadFilePV(keyFilePath, stateFilePath string, loadState bool) *FilePV {
 
 	// overwrite pubkey and address for convenience
 	pvKey.PubKey = pvKey.PrivKey.PubKey()
+	pvKey.PubKeyAux = pvKey.PrivKeyAux.PubKey()
 	pvKey.Address = pvKey.PubKey.Address()
 	pvKey.filePath = keyFilePath
 
@@ -294,14 +295,16 @@ func (pv *FilePV) Reset() {
 	pv.LastSignState.Round = 0
 	pv.LastSignState.Step = 0
 	pv.LastSignState.Signature = sig
+	pv.LastSignState.SignatureAux = sig
 	pv.LastSignState.SignBytes = nil
+	pv.LastSignState.SignBytesAux = nil
 	pv.Save()
 }
 
 // String returns a string representation of the FilePV.
 func (pv *FilePV) String() string {
 	return fmt.Sprintf(
-		"PrivValidator{%v LH:%v, LR:%v, LS:%v}",
+		"PrivValidatorMultiSig{%v LH:%v, LR:%v, LS:%v}",
 		pv.GetAddress(),
 		pv.LastSignState.Height,
 		pv.LastSignState.Round,
