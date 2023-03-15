@@ -28,6 +28,8 @@ import (
 	sm "github.com/tendermint/tendermint/state"
 	"github.com/tendermint/tendermint/types"
 	tmtime "github.com/tendermint/tendermint/types/time"
+
+	"github.com/tendermint/tendermint/mstm"
 )
 
 // Consensus sentinel errors
@@ -1160,10 +1162,18 @@ func (cs *State) defaultDecideProposal(height int64, round int32) {
 
 	// Make proposal
 	propBlockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
-	proposal := types.NewProposal(height, round, cs.ValidRound, propBlockID)
+	propHeaderAux := mstm.GenerateLightHeader(block, cs.Validators)
+	propHeaderAuxHash := mstm.GenerateHeaderAuxHash(propHeaderAux)
+	proposal := types.NewProposal(height, round, cs.ValidRound, propBlockID, propHeaderAuxHash)
 	p := proposal.ToProto()
 	if err := cs.privValidator.SignProposal(cs.state.ChainID, p); err == nil {
 		proposal.Signature = p.Signature
+
+		_, err := proposal.HeaderAuxSignature.SetBytes(p.HeaderAuxSignature)
+		if err != nil {
+			cs.Logger.Error("error with aux signer", "error", err)
+			panic(err)
+		}
 
 		// send proposal and block parts on internal msg queue
 		cs.sendInternalMessage(msgInfo{&ProposalMessage{proposal}, ""})
@@ -1874,7 +1884,17 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal) error {
 		return ErrInvalidProposalSignature
 	}
 
+	// Verify aux signature
+	if !cs.Validators.GetProposer().PubKeyAux.VerifySignature(
+		p.HeaderAuxHash, p.HeaderAuxSignature,
+	) {
+		return ErrInvalidProposalSignature
+	}
+
 	proposal.Signature = p.Signature
+	if _, err := proposal.HeaderAuxSignature.SetBytes(p.HeaderAuxSignature); err != nil {
+		return ErrInvalidProposalSignature
+	}
 	cs.Proposal = proposal
 	// We don't update cs.ProposalBlockParts if it is already set.
 	// This happens if we're already in cstypes.RoundStepCommit or if there is a valid block in the current round.

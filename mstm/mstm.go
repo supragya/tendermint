@@ -62,3 +62,23 @@ func GenerateLightHeader(block *types.Block, validators *types.ValidatorSet) *ty
 		Height:         heightFrElem,
 	}
 }
+
+func GenerateHeaderAuxHash(headerAux *types.HeaderAux) fr.Element {
+	hasher := mimc.NewMiMC()
+
+	bytes := headerAux.AppHash.Bytes()
+	hasher.Write(bytes[:])
+
+	bytes = headerAux.ValidatorsHash.Bytes()
+	hasher.Write(bytes[:])
+
+	bytes = headerAux.Time.Bytes()
+	hasher.Write(bytes[:])
+
+	bytes = headerAux.Height.Bytes()
+	hasher.Write(bytes[:])
+
+	elem := fr.NewElement(0)
+	elem.SetBytes(hasher.Sum([]byte{}))
+	return elem
+}

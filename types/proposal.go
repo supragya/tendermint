@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
+	"github.com/consensys/gnark-crypto/ecc/bn254/twistededwards/eddsa"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	"github.com/tendermint/tendermint/libs/protoio"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -23,25 +25,28 @@ var (
 // a so-called Proof-of-Lock (POL) round, as noted in the POLRound.
 // If POLRound >= 0, then BlockID corresponds to the block that is locked in POLRound.
 type Proposal struct {
-	Type      tmproto.SignedMsgType
-	Height    int64     `json:"height"`
-	Round     int32     `json:"round"`     // there can not be greater than 2_147_483_647 rounds
-	POLRound  int32     `json:"pol_round"` // -1 if null.
-	BlockID   BlockID   `json:"block_id"`
-	Timestamp time.Time `json:"timestamp"`
-	Signature []byte    `json:"signature"`
+	Type               tmproto.SignedMsgType
+	Height             int64           `json:"height"`
+	Round              int32           `json:"round"`     // there can not be greater than 2_147_483_647 rounds
+	POLRound           int32           `json:"pol_round"` // -1 if null.
+	BlockID            BlockID         `json:"block_id"`
+	Timestamp          time.Time       `json:"timestamp"`
+	Signature          []byte          `json:"signature"`
+	HeaderAuxHash      fr.Element      `json:"header_aux_hash"`
+	HeaderAuxSignature eddsa.Signature `json:"header_aux_signature"`
 }
 
 // NewProposal returns a new Proposal.
 // If there is no POLRound, polRound should be -1.
-func NewProposal(height int64, round int32, polRound int32, blockID BlockID) *Proposal {
+func NewProposal(height int64, round int32, polRound int32, blockID BlockID, headerAuxHash fr.Element) *Proposal {
 	return &Proposal{
-		Type:      tmproto.ProposalType,
-		Height:    height,
-		Round:     round,
-		BlockID:   blockID,
-		POLRound:  polRound,
-		Timestamp: tmtime.Now(),
+		Type:          tmproto.ProposalType,
+		Height:        height,
+		Round:         round,
+		BlockID:       blockID,
+		POLRound:      polRound,
+		Timestamp:     tmtime.Now(),
+		HeaderAuxHash: headerAuxHash,
 	}
 }
 
@@ -67,6 +72,12 @@ func (p *Proposal) ValidateBasic() error {
 		return fmt.Errorf("expected a complete, non-empty BlockID, got: %v", p.BlockID)
 	}
 
+	// Basic check for header Aux
+	nilFrElem := fr.NewElement(0)
+	if p.HeaderAuxHash.Cmp(&nilFrElem) == 0 {
+		return fmt.Errorf("headerAuxHash equals to zero")
+	}
+
 	// NOTE: Timestamp validation is subtle and handled elsewhere.
 
 	if len(p.Signature) == 0 {
@@ -76,6 +87,7 @@ func (p *Proposal) ValidateBasic() error {
 	if len(p.Signature) > MaxSignatureSize {
 		return fmt.Errorf("signature is too big (max: %d)", MaxSignatureSize)
 	}
+
 	return nil
 }
 
@@ -90,10 +102,11 @@ func (p *Proposal) ValidateBasic() error {
 //
 // See BlockID#String.
 func (p *Proposal) String() string {
-	return fmt.Sprintf("Proposal{%v/%v (%v, %v) %X @ %s}",
+	return fmt.Sprintf("Proposal{%v/%v (%v, %v, %v) %X @ %s}",
 		p.Height,
 		p.Round,
 		p.BlockID,
+		p.HeaderAuxHash.String(),
 		p.POLRound,
 		tmbytes.Fingerprint(p.Signature),
 		CanonicalTime(p.Timestamp))
@@ -132,6 +145,10 @@ func (p *Proposal) ToProto() *tmproto.Proposal {
 	pb.Timestamp = p.Timestamp
 	pb.Signature = p.Signature
 
+	headerAuxHashBytes := p.HeaderAuxHash.Bytes()
+	pb.HeaderAuxHash = headerAuxHashBytes[:]
+	pb.HeaderAuxSignature = p.HeaderAuxSignature.Bytes()
+
 	return pb
 }
 
@@ -156,6 +173,9 @@ func ProposalFromProto(pp *tmproto.Proposal) (*Proposal, error) {
 	p.POLRound = pp.PolRound
 	p.Timestamp = pp.Timestamp
 	p.Signature = pp.Signature
+
+	p.HeaderAuxHash.SetBytes(pp.HeaderAuxHash)
+	p.HeaderAuxSignature.SetBytes(pp.HeaderAuxSignature)
 
 	return p, p.ValidateBasic()
 }

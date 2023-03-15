@@ -130,6 +130,11 @@ message Proposal {
   google.protobuf.Timestamp timestamp = 6
       [(gogoproto.nullable) = false, (gogoproto.stdtime) = true];
   bytes signature = 7;
+
+  bytes headerauxhash = 8
+      [(gogoproto.customname) = "HeaderAuxHash"];
+  bytes headerauxsignature = 9
+      [(gogoproto.customname) = "HeaderAuxSignature"];
 }
 
 message SignedHeader {

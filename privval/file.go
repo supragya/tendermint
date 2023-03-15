@@ -351,7 +351,7 @@ func (pv *FilePV) signVote(chainID string, vote *tmproto.Vote) error {
 	if err != nil {
 		return err
 	}
-	pv.saveSigned(height, round, step, signBytes, sig)
+	pv.saveSigned(height, round, step, signBytes, sig, []byte{}, []byte{}) // TODO: change
 	vote.Signature = sig
 	return nil
 }
@@ -370,6 +370,7 @@ func (pv *FilePV) signProposal(chainID string, proposal *tmproto.Proposal) error
 	}
 
 	signBytes := types.ProposalSignBytes(chainID, proposal)
+	signBytesAux := proposal.HeaderAuxHash
 
 	// We might crash before writing to the wal,
 	// causing us to try to re-sign for the same HRS.
@@ -377,11 +378,14 @@ func (pv *FilePV) signProposal(chainID string, proposal *tmproto.Proposal) error
 	// If they only differ by timestamp, use last timestamp and signature
 	// Otherwise, return error
 	if sameHRS {
-		if bytes.Equal(signBytes, lss.SignBytes) {
+		if bytes.Equal(signBytes, lss.SignBytes) ||
+			bytes.Equal(signBytesAux, lss.SignBytesAux) {
 			proposal.Signature = lss.Signature
+			proposal.HeaderAuxSignature = lss.SignatureAux
 		} else if timestamp, ok := checkProposalsOnlyDifferByTimestamp(lss.SignBytes, signBytes); ok {
 			proposal.Timestamp = timestamp
 			proposal.Signature = lss.Signature
+			proposal.HeaderAuxSignature = lss.SignatureAux
 		} else {
 			err = fmt.Errorf("conflicting data")
 		}
@@ -393,20 +397,28 @@ func (pv *FilePV) signProposal(chainID string, proposal *tmproto.Proposal) error
 	if err != nil {
 		return err
 	}
-	pv.saveSigned(height, round, step, signBytes, sig)
+	siga, err := pv.Key.PrivKeyAux.Sign(signBytesAux)
+	if err != nil {
+		return err
+	}
+	pv.saveSigned(height, round, step, signBytes, sig, signBytesAux, siga)
+	// pv.saveSigned(height, round, step, signBytes, sig)
 	proposal.Signature = sig
+	proposal.HeaderAuxSignature = siga
 	return nil
 }
 
 // Persist height/round/step and signature
-func (pv *FilePV) saveSigned(height int64, round int32, step int8,
-	signBytes []byte, sig []byte) {
+func (pv *FilePV) saveSigned(height int64, round int32, step int8, signBytes []byte, sig []byte, signBytesAux []byte, signAux []byte) {
 
 	pv.LastSignState.Height = height
 	pv.LastSignState.Round = round
 	pv.LastSignState.Step = step
 	pv.LastSignState.Signature = sig
 	pv.LastSignState.SignBytes = signBytes
+	pv.LastSignState.SignatureAux = signAux
+	pv.LastSignState.SignBytesAux = signBytesAux
+
 	pv.LastSignState.Save()
 }
 
