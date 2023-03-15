@@ -32,11 +32,23 @@ func showValidator(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("can't get pubkey: %w", err)
 	}
 
+	pubKeyAux, err := pv.GetPubKeyAux()
+	if err != nil {
+		return fmt.Errorf("can't get pubkeyaux: %w", err)
+	}
+
 	bz, err := tmjson.Marshal(pubKey)
 	if err != nil {
 		return fmt.Errorf("failed to marshal private validator pubkey: %w", err)
 	}
 
-	fmt.Println(string(bz))
+	fmt.Printf("Tendermint PubKey: %s\n", string(bz))
+
+	bza, err := tmjson.Marshal(pubKeyAux)
+	if err != nil {
+		return fmt.Errorf("failed to marshal private validator pubkeyaux: %w", err)
+	}
+
+	fmt.Printf("Auxilary PubKey: %s\n", string(bza))
 	return nil
 }

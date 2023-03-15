@@ -25,10 +25,17 @@ var (
 )
 
 const (
-	PrivKeyName = "tendermint/PrivKeyEddsaBN254"
-	PubKeyName  = "tendermint/PubKeyEddsaBN254"
+	PrivKeyName = "tendermint/PrivKeyEddsabn254"
+	PubKeyName  = "tendermint/PubKeyEddsabn254"
+	// PubKeySize is is the size, in bytes, of public keys as used in this package.
+	PubKeySize = fr.Bytes
+	// PrivateKeySize is the size, in bytes, of private keys as used in this package.
+	PrivateKeySize = 2*fr.Bytes + 32
+	// Size of an Edwards25519 signature. Namely the size of a compressed
+	// Edwards25519 point, and a field element. Both of which are 32 bytes.
+	SignatureSize = 2 * fr.Bytes
 
-	KeyType = "eddsaBN254"
+	KeyType = "eddsabn254"
 )
 
 func init() {
@@ -78,7 +85,7 @@ func (privKey PrivKey) Sign(msg []byte) ([]byte, error) {
 // Panics if the private key is not initialized.
 func (privKey PrivKey) PubKey() crypto.PubKey {
 	return PubKey{
-		internal: privKey.internal.PublicKey,
+		Internal: privKey.internal.PublicKey,
 	}
 }
 
@@ -129,7 +136,7 @@ var _ crypto.PubKey = PubKey{}
 
 // PubKeyEddsa implements crypto.PubKey for the Eddsa signature scheme.
 type PubKey struct {
-	internal eddsa.PublicKey
+	Internal eddsa.PublicKey
 }
 
 func (pk PubKey) MarshalJSON() ([]byte, error) {
@@ -144,7 +151,7 @@ func (pk *PubKey) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	if _, err := pk.internal.SetBytes(pubKeyBytes); err != nil {
+	if _, err := pk.Internal.SetBytes(pubKeyBytes); err != nil {
 		return err
 	}
 	return nil
@@ -152,8 +159,8 @@ func (pk *PubKey) UnmarshalJSON(data []byte) error {
 
 func (pubKey *PubKey) ValidateBasic() error {
 	nilFrElem := fr.NewElement(0)
-	if pubKey.internal.A.X.Cmp(&nilFrElem) == 0 ||
-		pubKey.internal.A.Y.Cmp(&nilFrElem) == 0 {
+	if pubKey.Internal.A.X.Cmp(&nilFrElem) == 0 ||
+		pubKey.Internal.A.Y.Cmp(&nilFrElem) == 0 {
 		return errors.New("invalid pubkey: unset X or Y coordinate")
 	}
 	return nil
@@ -169,11 +176,11 @@ func (pubKey PubKey) Address() crypto.Address {
 
 // Bytes returns the PubKey byte format.
 func (pubKey PubKey) Bytes() []byte {
-	return pubKey.internal.Bytes()
+	return pubKey.Internal.Bytes()
 }
 
 func (pubKey PubKey) VerifySignature(msg []byte, sig []byte) bool {
-	result, err := pubKey.internal.Verify(sig, msg, mimc.NewMiMC())
+	result, err := pubKey.Internal.Verify(sig, msg, mimc.NewMiMC())
 	if err != nil {
 		fmt.Printf("msg and sig len %v %v\n", len(msg), len(sig))
 		return false
