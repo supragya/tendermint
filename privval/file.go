@@ -351,8 +351,13 @@ func (pv *FilePV) signVote(chainID string, vote *tmproto.Vote) error {
 	if err != nil {
 		return err
 	}
-	pv.saveSigned(height, round, step, signBytes, sig, []byte{}, []byte{}) // TODO: change
+	siga, err := pv.Key.PrivKeyAux.Sign(vote.HeaderAuxHash)
+	if err != nil {
+		return err
+	}
+	pv.saveSigned(height, round, step, signBytes, sig, vote.HeaderAuxHash, siga)
 	vote.Signature = sig
+	vote.SignatureAux = siga
 	return nil
 }
 

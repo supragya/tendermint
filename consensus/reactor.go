@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"reflect"
@@ -1702,12 +1703,15 @@ func (m *VoteSetMaj23Message) ValidateBasic() error {
 	if err := m.BlockID.ValidateBasic(); err != nil {
 		return fmt.Errorf("wrong BlockID: %v", err)
 	}
+	if len(m.AuxHeaderHash) == 0 {
+		return fmt.Errorf("zero length aux header hash")
+	}
 	return nil
 }
 
 // String returns a string representation.
 func (m *VoteSetMaj23Message) String() string {
-	return fmt.Sprintf("[VSM23 %v/%02d/%v %v]", m.Height, m.Round, m.Type, m.BlockID)
+	return fmt.Sprintf("[VSM23 %v/%02d/%v %v %v]", m.Height, m.Round, m.Type, m.BlockID, base64.StdEncoding.EncodeToString(m.AuxHeaderHash))
 }
 
 //-------------------------------------
@@ -1733,6 +1737,9 @@ func (m *VoteSetBitsMessage) ValidateBasic() error {
 	if err := m.BlockID.ValidateBasic(); err != nil {
 		return fmt.Errorf("wrong BlockID: %v", err)
 	}
+	if len(m.AuxHeaderHash) == 0 {
+		return fmt.Errorf("zero length aux header hash")
+	}
 	// NOTE: Votes.Size() can be zero if the node does not have any
 	if m.Votes.Size() > types.MaxVotesCount {
 		return fmt.Errorf("votes bit array is too big: %d, max: %d", m.Votes.Size(), types.MaxVotesCount)
@@ -1742,7 +1749,7 @@ func (m *VoteSetBitsMessage) ValidateBasic() error {
 
 // String returns a string representation.
 func (m *VoteSetBitsMessage) String() string {
-	return fmt.Sprintf("[VSB %v/%02d/%v %v %v]", m.Height, m.Round, m.Type, m.BlockID, m.Votes)
+	return fmt.Sprintf("[VSB %v/%02d/%v %v %v %v]", m.Height, m.Round, m.Type, m.BlockID, base64.StdEncoding.EncodeToString(m.AuxHeaderHash), m.Votes)
 }
 
 //-------------------------------------
