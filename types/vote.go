@@ -21,6 +21,7 @@ var (
 	ErrVoteInvalidValidatorIndex     = errors.New("invalid validator index")
 	ErrVoteInvalidValidatorAddress   = errors.New("invalid validator address")
 	ErrVoteInvalidSignature          = errors.New("invalid signature")
+	ErrVoteInvalidSignatureAux       = errors.New("invalid auxilary signature")
 	ErrVoteInvalidBlockHash          = errors.New("invalid block hash")
 	ErrVoteNonDeterministicSignature = errors.New("non-deterministic signature")
 	ErrVoteNil                       = errors.New("nil vote")
@@ -50,12 +51,14 @@ type Address = crypto.Address
 type Vote struct {
 	Type             tmproto.SignedMsgType `json:"type"`
 	Height           int64                 `json:"height"`
-	Round            int32                 `json:"round"`    // assume there will not be greater than 2_147_483_647 rounds
-	BlockID          BlockID               `json:"block_id"` // zero if vote is nil.
+	Round            int32                 `json:"round"`           // assume there will not be greater than 2_147_483_647 rounds
+	BlockID          BlockID               `json:"block_id"`        // zero if vote is nil.
+	HeaderAuxHash    []byte                `json:"header_aux_hash"` // multisig tendermint
 	Timestamp        time.Time             `json:"timestamp"`
 	ValidatorAddress Address               `json:"validator_address"`
 	ValidatorIndex   int32                 `json:"validator_index"`
 	Signature        []byte                `json:"signature"`
+	SignatureAux     []byte                `json:"signature_aux"`
 }
 
 // CommitSig converts the Vote to a CommitSig.
@@ -131,7 +134,7 @@ func (vote *Vote) String() string {
 		panic("Unknown vote type")
 	}
 
-	return fmt.Sprintf("Vote{%v:%X %v/%02d/%v(%v) %X %X @ %s}",
+	return fmt.Sprintf("Vote{%v:%X %v/%02d/%v(%v) %X %X %X @ %s}",
 		vote.ValidatorIndex,
 		tmbytes.Fingerprint(vote.ValidatorAddress),
 		vote.Height,
@@ -140,17 +143,21 @@ func (vote *Vote) String() string {
 		typeString,
 		tmbytes.Fingerprint(vote.BlockID.Hash),
 		tmbytes.Fingerprint(vote.Signature),
+		tmbytes.Fingerprint(vote.SignatureAux),
 		CanonicalTime(vote.Timestamp),
 	)
 }
 
-func (vote *Vote) Verify(chainID string, pubKey crypto.PubKey) error {
+func (vote *Vote) Verify(chainID string, pubKey crypto.PubKey, pubKeyAux crypto.PubKey) error {
 	if !bytes.Equal(pubKey.Address(), vote.ValidatorAddress) {
 		return ErrVoteInvalidValidatorAddress
 	}
 	v := vote.ToProto()
 	if !pubKey.VerifySignature(VoteSignBytes(chainID, v), vote.Signature) {
 		return ErrVoteInvalidSignature
+	}
+	if !pubKeyAux.VerifySignature(vote.HeaderAuxHash, vote.SignatureAux) {
+		return ErrVoteInvalidSignatureAux
 	}
 	return nil
 }
@@ -217,6 +224,8 @@ func (vote *Vote) ToProto() *tmproto.Vote {
 		ValidatorAddress: vote.ValidatorAddress,
 		ValidatorIndex:   vote.ValidatorIndex,
 		Signature:        vote.Signature,
+		HeaderAuxHash:    vote.HeaderAuxHash,
+		SignatureAux:     vote.SignatureAux,
 	}
 }
 
@@ -257,6 +266,8 @@ func VoteFromProto(pv *tmproto.Vote) (*Vote, error) {
 	vote.ValidatorAddress = pv.ValidatorAddress
 	vote.ValidatorIndex = pv.ValidatorIndex
 	vote.Signature = pv.Signature
+	vote.SignatureAux = pv.SignatureAux
+	vote.HeaderAuxHash = pv.HeaderAuxHash
 
 	return vote, vote.ValidateBasic()
 }

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/eddsabn254"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -61,6 +62,14 @@ func (sc *RetrySignerClient) GetPubKey() (crypto.PubKey, error) {
 		time.Sleep(sc.timeout)
 	}
 	return nil, fmt.Errorf("exhausted all attempts to get pubkey: %w", err)
+}
+
+// Multisig Tendermint:
+// GetPubKey is a dummy placeholder, presents a random
+// EDDSA Pubkey when called
+func (sc *RetrySignerClient) GetPubKeyAux() (crypto.PubKey, error) {
+	randomPrivKey := eddsabn254.GenPrivKey()
+	return randomPrivKey.PubKey(), nil
 }
 
 func (sc *RetrySignerClient) SignVote(chainID string, vote *tmproto.Vote) error {

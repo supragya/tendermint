@@ -18,16 +18,18 @@ import (
 type Validator struct {
 	Address     Address       `json:"address"`
 	PubKey      crypto.PubKey `json:"pub_key"`
+	PubKeyAux   crypto.PubKey `json:"pub_key_aux"`
 	VotingPower int64         `json:"voting_power"`
 
 	ProposerPriority int64 `json:"proposer_priority"`
 }
 
 // NewValidator returns a new validator with the given pubkey and voting power.
-func NewValidator(pubKey crypto.PubKey, votingPower int64) *Validator {
+func NewValidator(pubKey crypto.PubKey, pubKeyAux crypto.PubKey, votingPower int64) *Validator {
 	return &Validator{
 		Address:          pubKey.Address(),
 		PubKey:           pubKey,
+		PubKeyAux:        pubKeyAux,
 		VotingPower:      votingPower,
 		ProposerPriority: 0,
 	}
@@ -40,6 +42,9 @@ func (v *Validator) ValidateBasic() error {
 	}
 	if v.PubKey == nil {
 		return errors.New("validator does not have a public key")
+	}
+	if v.PubKeyAux == nil {
+		return errors.New("validator does not have an auxilary public key")
 	}
 
 	if v.VotingPower < 0 {
@@ -93,9 +98,10 @@ func (v *Validator) String() string {
 	if v == nil {
 		return "nil-Validator"
 	}
-	return fmt.Sprintf("Validator{%v %v VP:%v A:%v}",
+	return fmt.Sprintf("Validator{%v %v %v VP:%v A:%v}",
 		v.Address,
 		v.PubKey,
+		v.PubKeyAux,
 		v.VotingPower,
 		v.ProposerPriority)
 }
@@ -143,11 +149,17 @@ func (v *Validator) ToProto() (*tmproto.Validator, error) {
 		return nil, err
 	}
 
+	pka, err := ce.PubKeyToProto(v.PubKeyAux)
+	if err != nil {
+		return nil, err
+	}
+
 	vp := tmproto.Validator{
 		Address:          v.Address,
 		PubKey:           pk,
 		VotingPower:      v.VotingPower,
 		ProposerPriority: v.ProposerPriority,
+		PubKeyAux:        pka,
 	}
 
 	return &vp, nil
@@ -164,9 +176,14 @@ func ValidatorFromProto(vp *tmproto.Validator) (*Validator, error) {
 	if err != nil {
 		return nil, err
 	}
+	pka, err := ce.PubKeyFromProto(vp.PubKeyAux)
+	if err != nil {
+		return nil, err
+	}
 	v := new(Validator)
 	v.Address = vp.GetAddress()
 	v.PubKey = pk
+	v.PubKeyAux = pka
 	v.VotingPower = vp.GetVotingPower()
 	v.ProposerPriority = vp.GetProposerPriority()
 
@@ -188,6 +205,10 @@ func RandValidator(randPower bool, minPower int64) (*Validator, PrivValidator) {
 	if err != nil {
 		panic(fmt.Errorf("could not retrieve pubkey %w", err))
 	}
-	val := NewValidator(pubKey, votePower)
+	pubKeyAux, err := privVal.GetPubKeyAux()
+	if err != nil {
+		panic(fmt.Errorf("could not retrieve pubkey aux %w", err))
+	}
+	val := NewValidator(pubKey, pubKeyAux, votePower)
 	return val, privVal
 }

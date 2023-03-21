@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"reflect"
@@ -276,7 +277,7 @@ func (conR *Reactor) Receive(chID byte, src p2p.Peer, msgBytes []byte) {
 				return
 			}
 			// Peer claims to have a maj23 for some BlockID at H,R,S,
-			err := votes.SetPeerMaj23(msg.Round, msg.Type, ps.peer.ID(), msg.BlockID)
+			err := votes.SetPeerMaj23(msg.Round, msg.Type, ps.peer.ID(), msg.BlockID, msg.AuxHeaderHash)
 			if err != nil {
 				conR.Switch.StopPeerForError(src, err)
 				return
@@ -1681,10 +1682,11 @@ func (m *HasVoteMessage) String() string {
 
 // VoteSetMaj23Message is sent to indicate that a given BlockID has seen +2/3 votes.
 type VoteSetMaj23Message struct {
-	Height  int64
-	Round   int32
-	Type    tmproto.SignedMsgType
-	BlockID types.BlockID
+	Height        int64
+	Round         int32
+	Type          tmproto.SignedMsgType
+	BlockID       types.BlockID
+	AuxHeaderHash []byte
 }
 
 // ValidateBasic performs basic validation.
@@ -1701,23 +1703,27 @@ func (m *VoteSetMaj23Message) ValidateBasic() error {
 	if err := m.BlockID.ValidateBasic(); err != nil {
 		return fmt.Errorf("wrong BlockID: %v", err)
 	}
+	if len(m.AuxHeaderHash) == 0 {
+		return fmt.Errorf("zero length aux header hash")
+	}
 	return nil
 }
 
 // String returns a string representation.
 func (m *VoteSetMaj23Message) String() string {
-	return fmt.Sprintf("[VSM23 %v/%02d/%v %v]", m.Height, m.Round, m.Type, m.BlockID)
+	return fmt.Sprintf("[VSM23 %v/%02d/%v %v %v]", m.Height, m.Round, m.Type, m.BlockID, base64.StdEncoding.EncodeToString(m.AuxHeaderHash))
 }
 
 //-------------------------------------
 
 // VoteSetBitsMessage is sent to communicate the bit-array of votes seen for the BlockID.
 type VoteSetBitsMessage struct {
-	Height  int64
-	Round   int32
-	Type    tmproto.SignedMsgType
-	BlockID types.BlockID
-	Votes   *bits.BitArray
+	Height        int64
+	Round         int32
+	Type          tmproto.SignedMsgType
+	BlockID       types.BlockID
+	AuxHeaderHash []byte
+	Votes         *bits.BitArray
 }
 
 // ValidateBasic performs basic validation.
@@ -1731,6 +1737,9 @@ func (m *VoteSetBitsMessage) ValidateBasic() error {
 	if err := m.BlockID.ValidateBasic(); err != nil {
 		return fmt.Errorf("wrong BlockID: %v", err)
 	}
+	if len(m.AuxHeaderHash) == 0 {
+		return fmt.Errorf("zero length aux header hash")
+	}
 	// NOTE: Votes.Size() can be zero if the node does not have any
 	if m.Votes.Size() > types.MaxVotesCount {
 		return fmt.Errorf("votes bit array is too big: %d, max: %d", m.Votes.Size(), types.MaxVotesCount)
@@ -1740,7 +1749,7 @@ func (m *VoteSetBitsMessage) ValidateBasic() error {
 
 // String returns a string representation.
 func (m *VoteSetBitsMessage) String() string {
-	return fmt.Sprintf("[VSB %v/%02d/%v %v %v]", m.Height, m.Round, m.Type, m.BlockID, m.Votes)
+	return fmt.Sprintf("[VSB %v/%02d/%v %v %v %v]", m.Height, m.Round, m.Type, m.BlockID, base64.StdEncoding.EncodeToString(m.AuxHeaderHash), m.Votes)
 }
 
 //-------------------------------------

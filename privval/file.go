@@ -11,6 +11,7 @@ import (
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/tendermint/tendermint/crypto/eddsabn254"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	tmjson "github.com/tendermint/tendermint/libs/json"
 	tmos "github.com/tendermint/tendermint/libs/os"
@@ -45,9 +46,11 @@ func voteToStep(vote *tmproto.Vote) int8 {
 
 // FilePVKey stores the immutable part of PrivValidator.
 type FilePVKey struct {
-	Address types.Address  `json:"address"`
-	PubKey  crypto.PubKey  `json:"pub_key"`
-	PrivKey crypto.PrivKey `json:"priv_key"`
+	Address    types.Address  `json:"address"`
+	PubKey     crypto.PubKey  `json:"pub_key"`
+	PrivKey    crypto.PrivKey `json:"priv_key"`
+	PubKeyAux  crypto.PubKey  `json:"pub_key_aux"`
+	PrivKeyAux crypto.PrivKey `json:"priv_key_aux"`
 
 	filePath string
 }
@@ -73,11 +76,13 @@ func (pvKey FilePVKey) Save() {
 
 // FilePVLastSignState stores the mutable part of PrivValidator.
 type FilePVLastSignState struct {
-	Height    int64            `json:"height"`
-	Round     int32            `json:"round"`
-	Step      int8             `json:"step"`
-	Signature []byte           `json:"signature,omitempty"`
-	SignBytes tmbytes.HexBytes `json:"signbytes,omitempty"`
+	Height       int64            `json:"height"`
+	Round        int32            `json:"round"`
+	Step         int8             `json:"step"`
+	Signature    []byte           `json:"signature,omitempty"`
+	SignatureAux []byte           `json:"signatureaux,omitempty"`
+	SignBytes    tmbytes.HexBytes `json:"signbytes,omitempty"`
+	SignBytesAux []byte           `json:"signbytesaux,omitempty"`
 
 	filePath string
 }
@@ -152,13 +157,15 @@ type FilePV struct {
 }
 
 // NewFilePV generates a new validator from the given key and paths.
-func NewFilePV(privKey crypto.PrivKey, keyFilePath, stateFilePath string) *FilePV {
+func NewFilePV(privKey crypto.PrivKey, privKeyAux crypto.PrivKey, keyFilePath, stateFilePath string) *FilePV {
 	return &FilePV{
 		Key: FilePVKey{
-			Address:  privKey.PubKey().Address(),
-			PubKey:   privKey.PubKey(),
-			PrivKey:  privKey,
-			filePath: keyFilePath,
+			Address:    privKey.PubKey().Address(),
+			PubKey:     privKey.PubKey(),
+			PrivKey:    privKey,
+			PubKeyAux:  privKeyAux.PubKey(),
+			PrivKeyAux: privKeyAux,
+			filePath:   keyFilePath,
 		},
 		LastSignState: FilePVLastSignState{
 			Step:     stepNone,
@@ -170,7 +177,7 @@ func NewFilePV(privKey crypto.PrivKey, keyFilePath, stateFilePath string) *FileP
 // GenFilePV generates a new validator with randomly generated private key
 // and sets the filePaths, but does not call Save().
 func GenFilePV(keyFilePath, stateFilePath string) *FilePV {
-	return NewFilePV(ed25519.GenPrivKey(), keyFilePath, stateFilePath)
+	return NewFilePV(ed25519.GenPrivKey(), eddsabn254.GenPrivKey(), keyFilePath, stateFilePath)
 }
 
 // LoadFilePV loads a FilePV from the filePaths.  The FilePV handles double
@@ -200,6 +207,7 @@ func loadFilePV(keyFilePath, stateFilePath string, loadState bool) *FilePV {
 
 	// overwrite pubkey and address for convenience
 	pvKey.PubKey = pvKey.PrivKey.PubKey()
+	pvKey.PubKeyAux = pvKey.PrivKeyAux.PubKey()
 	pvKey.Address = pvKey.PubKey.Address()
 	pvKey.filePath = keyFilePath
 
@@ -249,6 +257,12 @@ func (pv *FilePV) GetPubKey() (crypto.PubKey, error) {
 	return pv.Key.PubKey, nil
 }
 
+// GetPubKeyAux returns the public key of the validator's EDDSA key.
+// Implements PrivValidator.
+func (pv *FilePV) GetPubKeyAux() (crypto.PubKey, error) {
+	return pv.Key.PubKeyAux, nil
+}
+
 // SignVote signs a canonical representation of the vote, along with the
 // chainID. Implements PrivValidator.
 func (pv *FilePV) SignVote(chainID string, vote *tmproto.Vote) error {
@@ -281,14 +295,16 @@ func (pv *FilePV) Reset() {
 	pv.LastSignState.Round = 0
 	pv.LastSignState.Step = 0
 	pv.LastSignState.Signature = sig
+	pv.LastSignState.SignatureAux = sig
 	pv.LastSignState.SignBytes = nil
+	pv.LastSignState.SignBytesAux = nil
 	pv.Save()
 }
 
 // String returns a string representation of the FilePV.
 func (pv *FilePV) String() string {
 	return fmt.Sprintf(
-		"PrivValidator{%v LH:%v, LR:%v, LS:%v}",
+		"PrivValidatorMultiSig{%v LH:%v, LR:%v, LS:%v}",
 		pv.GetAddress(),
 		pv.LastSignState.Height,
 		pv.LastSignState.Round,
@@ -335,8 +351,13 @@ func (pv *FilePV) signVote(chainID string, vote *tmproto.Vote) error {
 	if err != nil {
 		return err
 	}
-	pv.saveSigned(height, round, step, signBytes, sig)
+	siga, err := pv.Key.PrivKeyAux.Sign(vote.HeaderAuxHash)
+	if err != nil {
+		return err
+	}
+	pv.saveSigned(height, round, step, signBytes, sig, vote.HeaderAuxHash, siga)
 	vote.Signature = sig
+	vote.SignatureAux = siga
 	return nil
 }
 
@@ -354,6 +375,7 @@ func (pv *FilePV) signProposal(chainID string, proposal *tmproto.Proposal) error
 	}
 
 	signBytes := types.ProposalSignBytes(chainID, proposal)
+	signBytesAux := proposal.HeaderAuxHash
 
 	// We might crash before writing to the wal,
 	// causing us to try to re-sign for the same HRS.
@@ -361,11 +383,14 @@ func (pv *FilePV) signProposal(chainID string, proposal *tmproto.Proposal) error
 	// If they only differ by timestamp, use last timestamp and signature
 	// Otherwise, return error
 	if sameHRS {
-		if bytes.Equal(signBytes, lss.SignBytes) {
+		if bytes.Equal(signBytes, lss.SignBytes) ||
+			bytes.Equal(signBytesAux, lss.SignBytesAux) {
 			proposal.Signature = lss.Signature
+			proposal.HeaderAuxSignature = lss.SignatureAux
 		} else if timestamp, ok := checkProposalsOnlyDifferByTimestamp(lss.SignBytes, signBytes); ok {
 			proposal.Timestamp = timestamp
 			proposal.Signature = lss.Signature
+			proposal.HeaderAuxSignature = lss.SignatureAux
 		} else {
 			err = fmt.Errorf("conflicting data")
 		}
@@ -377,20 +402,28 @@ func (pv *FilePV) signProposal(chainID string, proposal *tmproto.Proposal) error
 	if err != nil {
 		return err
 	}
-	pv.saveSigned(height, round, step, signBytes, sig)
+	siga, err := pv.Key.PrivKeyAux.Sign(signBytesAux)
+	if err != nil {
+		return err
+	}
+	pv.saveSigned(height, round, step, signBytes, sig, signBytesAux, siga)
+	// pv.saveSigned(height, round, step, signBytes, sig)
 	proposal.Signature = sig
+	proposal.HeaderAuxSignature = siga
 	return nil
 }
 
 // Persist height/round/step and signature
-func (pv *FilePV) saveSigned(height int64, round int32, step int8,
-	signBytes []byte, sig []byte) {
+func (pv *FilePV) saveSigned(height int64, round int32, step int8, signBytes []byte, sig []byte, signBytesAux []byte, signAux []byte) {
 
 	pv.LastSignState.Height = height
 	pv.LastSignState.Round = round
 	pv.LastSignState.Step = step
 	pv.LastSignState.Signature = sig
 	pv.LastSignState.SignBytes = signBytes
+	pv.LastSignState.SignatureAux = signAux
+	pv.LastSignState.SignBytesAux = signBytesAux
+
 	pv.LastSignState.Save()
 }
 

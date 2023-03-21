@@ -108,10 +108,11 @@ func MsgToProto(msg Message) (*tmcons.Message, error) {
 		pb = tmcons.Message{
 			Sum: &tmcons.Message_VoteSetMaj23{
 				VoteSetMaj23: &tmcons.VoteSetMaj23{
-					Height:  msg.Height,
-					Round:   msg.Round,
-					Type:    msg.Type,
-					BlockID: bi,
+					Height:        msg.Height,
+					Round:         msg.Round,
+					Type:          msg.Type,
+					BlockID:       bi,
+					AuxHeaderHash: msg.AuxHeaderHash,
 				},
 			},
 		}
@@ -121,10 +122,11 @@ func MsgToProto(msg Message) (*tmcons.Message, error) {
 
 		vsb := &tmcons.Message_VoteSetBits{
 			VoteSetBits: &tmcons.VoteSetBits{
-				Height:  msg.Height,
-				Round:   msg.Round,
-				Type:    msg.Type,
-				BlockID: bi,
+				Height:        msg.Height,
+				Round:         msg.Round,
+				Type:          msg.Type,
+				BlockID:       bi,
+				AuxHeaderHash: msg.AuxHeaderHash,
 			},
 		}
 
@@ -229,10 +231,11 @@ func MsgFromProto(msg *tmcons.Message) (Message, error) {
 			return nil, fmt.Errorf("voteSetMaj23 msg to proto error: %w", err)
 		}
 		pb = &VoteSetMaj23Message{
-			Height:  msg.VoteSetMaj23.Height,
-			Round:   msg.VoteSetMaj23.Round,
-			Type:    msg.VoteSetMaj23.Type,
-			BlockID: *bi,
+			Height:        msg.VoteSetMaj23.Height,
+			Round:         msg.VoteSetMaj23.Round,
+			Type:          msg.VoteSetMaj23.Type,
+			BlockID:       *bi,
+			AuxHeaderHash: msg.VoteSetMaj23.AuxHeaderHash,
 		}
 	case *tmcons.Message_VoteSetBits:
 		bi, err := types.BlockIDFromProto(&msg.VoteSetBits.BlockID)
@@ -243,11 +246,12 @@ func MsgFromProto(msg *tmcons.Message) (Message, error) {
 		bits.FromProto(&msg.VoteSetBits.Votes)
 
 		pb = &VoteSetBitsMessage{
-			Height:  msg.VoteSetBits.Height,
-			Round:   msg.VoteSetBits.Round,
-			Type:    msg.VoteSetBits.Type,
-			BlockID: *bi,
-			Votes:   bits,
+			Height:        msg.VoteSetBits.Height,
+			Round:         msg.VoteSetBits.Round,
+			Type:          msg.VoteSetBits.Type,
+			BlockID:       *bi,
+			AuxHeaderHash: msg.VoteSetBits.GetAuxHeaderHash(),
+			Votes:         bits,
 		}
 	default:
 		return nil, fmt.Errorf("consensus: message not recognized: %T", msg)

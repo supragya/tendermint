@@ -70,8 +70,19 @@ type VoteSet struct {
 	votes         []*Vote                // Primary votes to share
 	sum           int64                  // Sum of voting power for seen votes, discounting conflicts
 	maj23         *BlockID               // First 2/3 majority seen
+	maj23aux      []byte                 // First 2/3 majority seen (aux header hash)
 	votesByBlock  map[string]*blockVotes // string(blockHash|blockParts) -> blockVotes
-	peerMaj23s    map[P2PID]BlockID      // Maj23 for each peer
+	peerMaj23s    map[P2PID]PeerMaj23    // Maj23 for each peer
+}
+
+type PeerMaj23 struct {
+	BlockID       BlockID
+	AuxHeaderHash []byte
+}
+
+// Equals returns true if the BlockID matches the given BlockID
+func (p PeerMaj23) Equals(o PeerMaj23) bool {
+	return p.BlockID.Equals(o.BlockID) && bytes.Equal(p.AuxHeaderHash, o.AuxHeaderHash)
 }
 
 // Constructs a new VoteSet struct used to accumulate votes for given height/round.
@@ -91,7 +102,7 @@ func NewVoteSet(chainID string, height int64, round int32,
 		sum:           0,
 		maj23:         nil,
 		votesByBlock:  make(map[string]*blockVotes, valSet.Size()),
-		peerMaj23s:    make(map[P2PID]BlockID),
+		peerMaj23s:    make(map[P2PID]PeerMaj23),
 	}
 }
 
@@ -202,8 +213,8 @@ func (voteSet *VoteSet) addVote(vote *Vote) (added bool, err error) {
 	}
 
 	// Check signature.
-	if err := vote.Verify(voteSet.chainID, val.PubKey); err != nil {
-		return false, fmt.Errorf("failed to verify vote with ChainID %s and PubKey %s: %w", voteSet.chainID, val.PubKey, err)
+	if err := vote.Verify(voteSet.chainID, val.PubKey, val.PubKeyAux); err != nil {
+		return false, fmt.Errorf("failed to verify vote with ChainID %s and PubKeys %s %s: %w", voteSet.chainID, val.PubKey, val.PubKeyAux, err)
 	}
 
 	// Add vote and get conflicting vote if any.
@@ -315,7 +326,7 @@ func (voteSet *VoteSet) addVerifiedVote(
 // this can cause memory issues.
 // TODO: implement ability to remove peers too
 // NOTE: VoteSet must not be nil
-func (voteSet *VoteSet) SetPeerMaj23(peerID P2PID, blockID BlockID) error {
+func (voteSet *VoteSet) SetPeerMaj23(peerID P2PID, blockID BlockID, auxHeaderHash []byte) error {
 	if voteSet == nil {
 		panic("SetPeerMaj23() on nil VoteSet")
 	}
@@ -324,15 +335,16 @@ func (voteSet *VoteSet) SetPeerMaj23(peerID P2PID, blockID BlockID) error {
 
 	blockKey := blockID.Key()
 
+	p := PeerMaj23{BlockID: blockID, AuxHeaderHash: auxHeaderHash}
 	// Make sure peer hasn't already told us something.
 	if existing, ok := voteSet.peerMaj23s[peerID]; ok {
-		if existing.Equals(blockID) {
+		if existing.Equals(p) {
 			return nil // Nothing to do
 		}
 		return fmt.Errorf("setPeerMaj23: Received conflicting blockID from peer %v. Got %v, expected %v",
 			peerID, blockID, existing)
 	}
-	voteSet.peerMaj23s[peerID] = blockID
+	voteSet.peerMaj23s[peerID] = p
 
 	// Create .votesByBlock entry if needed.
 	votesByBlock, ok := voteSet.votesByBlock[blockKey]
@@ -529,9 +541,9 @@ func (voteSet *VoteSet) MarshalJSON() ([]byte, error) {
 // NOTE: insufficient for unmarshalling from (compressed votes)
 // TODO: make the peerMaj23s nicer to read (eg just the block hash)
 type VoteSetJSON struct {
-	Votes         []string          `json:"votes"`
-	VotesBitArray string            `json:"votes_bit_array"`
-	PeerMaj23s    map[P2PID]BlockID `json:"peer_maj_23s"`
+	Votes         []string            `json:"votes"`
+	VotesBitArray string              `json:"votes_bit_array"`
+	PeerMaj23s    map[P2PID]PeerMaj23 `json:"peer_maj_23s"`
 }
 
 // Return the bit-array of votes including
